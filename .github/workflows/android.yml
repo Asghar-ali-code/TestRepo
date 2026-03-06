@@ -31,11 +31,15 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # ── 3. Grant execute permission for gradlew ────────────────────────────
+      # ── 3. Setup Gradle (generates wrapper jar if missing) ────────────────
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # ── 4. Grant execute permission for gradlew ───────────────────────────
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # ── 4. Cache Gradle dependencies ──────────────────────────────────────
+      # ── 5. Cache Gradle dependencies ──────────────────────────────────────
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
@@ -46,38 +50,40 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      # ── 5. Build debug APK ────────────────────────────────────────────────
+      # ── 6. Build debug APK ────────────────────────────────────────────────
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      # ── 6. (Optional) Build release APK – requires keystore secrets ───────
-      # Uncomment this block and add the secrets below to your repo if you
-      # want a signed release APK in addition to the debug one.
-      #
-      # - name: Build Release APK
-      #   env:
-      #     KEYSTORE_FILE:      ${{ secrets.KEYSTORE_FILE }}        # base64-encoded keystore
-      #     KEYSTORE_PASSWORD:  ${{ secrets.KEYSTORE_PASSWORD }}
-      #     KEY_ALIAS:          ${{ secrets.KEY_ALIAS }}
-      #     KEY_PASSWORD:       ${{ secrets.KEY_PASSWORD }}
-      #   run: |
-      #     echo "$KEYSTORE_FILE" | base64 --decode > app/release.keystore
-      #     ./gradlew assembleRelease \
-      #       -Pandroid.injected.signing.store.file=app/release.keystore \
-      #       -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
-      #       -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
-      #       -Pandroid.injected.signing.key.password=$KEY_PASSWORD \
-      #       --stacktrace
-
-      # ── 7. Upload APK as build artifact ───────────────────────────────────
+      # ── 7. Upload Debug APK ───────────────────────────────────────────────
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: debug-apk-${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 14          # keep the artifact for 14 days
+          retention-days: 14
 
-      # ── 8. (Optional) Comment APK download link on the PR ─────────────────
+      # ── 8. Decode keystore from base64 secret ─────────────────────────────
+      - name: Decode Keystore
+        run: echo "${{ secrets.KEYSTORE_FILE }}" | base64 --decode > app/release.keystore
+
+      # ── 9. Build release APK ──────────────────────────────────────────────
+      - name: Build Release APK
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      # ── 10. Upload Release APK ────────────────────────────────────────────
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-${{ github.run_number }}
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      # ── 11. Comment APK links on PR ───────────────────────────────────────
       - name: Comment APK link on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -87,5 +93,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context. repo.owner,
               repo: context. repo.repo,
-              body: `✅ **APK built successfully!**\n\nDownload the debug APK from the [Actions run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) artifacts section.`
+              body: `✅ **APKs built successfully!**\n\n📦 Download from [Actions run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) artifacts section:\n- \`debug-apk-${{ github.run_number }}\`\n- \`release-apk-${{ github.run_number }}\``
             })
